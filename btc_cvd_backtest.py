@@ -1,8 +1,9 @@
 """
 BTC CVD + MA20/MA200 Momentum Backtest (v3)
 ==========================================
-Fetch from Feb 2024 so MA200 is valid before Aug 2025 backtest start.
-Deduplication + forward fetch for clean data quality.
+Fetch from Aug 2023 — same starting point as the original momentum script.
+Forward fill + deduplication for clean data quality.
+MA200 first valid: ~Feb 2024. Backtest starts May 2025.
 
 Run: python btc_cvd_backtest.py
 Output: btc_cvd_equity_curve.png
@@ -20,7 +21,7 @@ import matplotlib.dates as mdates
 # ============================================================
 print("Fetching BTCUSDT daily klines from Binance...")
 
-FATCH_START_MS = 1706745600000  # Feb 1, 2024
+FATCH_START_MS = 1692662400000  # Aug 1, 2023
 
 all_klines = []
 batch = 500
