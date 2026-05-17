@@ -243,9 +243,8 @@ plt.close("all")
 date_range_start = df["dt"].iloc[start_idx].strftime("%b %Y")
 date_range_end   = df["dt"].iloc[-1].strftime("%b %Y")
 
-fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(14, 10),
-                                      sharex=True,
-                                      gridspec_kw={"height_ratios": [2, 2, 1]})
+fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10), sharex=True,
+                                      gridspec_kw={"height_ratios": [2, 2]})
 fig.suptitle(f"BTC Momentum: MA-only vs MA+CVD Divergence\n({date_range_start} – {date_range_end})",
              fontsize=14, fontweight="bold")
 
@@ -284,7 +283,7 @@ ax2.fill_between(dt_slice, ma20_slice, ma200_slice,
 ax2.set_ylabel("BTC Price ($)")
 ax2.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"${x:,.0f}"))
 ax2.legend(loc="upper right", fontsize=9)
-ax2.set_title("Price + MA20/MA200")
+ax2.set_title("Price + MA20/MA200 + CVD (right axis)")
 ax2.grid(True, alpha=0.3)
 
 for t in trades_ma:
@@ -292,38 +291,41 @@ for t in trades_ma:
     marker = "^" if t["type"] == "BUY" else "v"
     ax2.scatter([t["date"]], [t["price"]], color=color, marker=marker, s=60, zorder=5)
 
-# ── Bottom: Raw CVD ─────────────────────────────────────────
+# ── Bottom: Raw CVD merged into price panel ─────────────────
+ax2_cvd = ax2.twinx()  # separate y-axis for CVD
+
 cvd_slice = df["cvd"].iloc[start_idx:].reset_index(drop=True)
 cvd_clean = np.nan_to_num(cvd_slice.values, nan=0.0)
 
-ax3.plot(dt_slice, cvd_clean, color="#FF9800", linewidth=1.5, label="CVD")
-ax3.axhline(0, color="grey", linewidth=0.8, alpha=0.5)
-ax3.fill_between(dt_slice, cvd_clean, 0,
-                 where=(cvd_clean >= 0), color="green", alpha=0.2, label="CVD positive")
-ax3.fill_between(dt_slice, cvd_clean, 0,
-                 where=(cvd_clean < 0),  color="red",   alpha=0.2, label="CVD negative")
-ax3.set_ylabel("CVD (BTC)")
-ax3.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"{x:,.0f}"))
-ax3.legend(loc="upper right", fontsize=9)
-ax3.set_title("Cumulative Volume Delta (raw)")
-ax3.grid(True, alpha=0.3)
+ax2_cvd.plot(dt_slice, cvd_clean, color="#FF9800", linewidth=1.5, label="CVD", alpha=0.85)
+ax2_cvd.fill_between(dt_slice, cvd_clean, 0,
+                     where=(cvd_clean >= 0), color="green", alpha=0.12)
+ax2_cvd.fill_between(dt_slice, cvd_clean, 0,
+                     where=(cvd_clean < 0),  color="red",   alpha=0.12)
+ax2_cvd.set_ylabel("CVD (BTC)", color="#FF9800")
+ax2_cvd.tick_params(axis="y", labelcolor="#FF9800")
+ax2_cvd.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"{x:,.0f}"))
+ax2_cvd.axhline(0, color="grey", linewidth=0.8, alpha=0.4)
 
-# Divergence markers
+# Divergence markers on CVD y-axis
 div_mask = df["cvd_diverging"].iloc[start_idx:].reset_index(drop=True)
 for j, (is_div, d) in enumerate(zip(div_mask, dt_slice)):
     if is_div:
-        ax3.axvline(d, color="orange", linestyle=":", alpha=0.6, linewidth=0.8)
+        ax2.axvline(d, color="orange", linestyle=":", alpha=0.6, linewidth=0.8)
+
+# CVD legend — merge lines from both y-axes
+lines1, labels1 = ax2.get_legend_handles_labels()
+lines2, labels2 = ax2_cvd.get_legend_handles_labels()
+ax2.legend(lines1 + lines2, labels1 + labels2, loc="upper right", fontsize=9)
 
 # ── Shared X-axis format ───────────────────────────────────
-ax3.xaxis.set_major_formatter(mdates.DateFormatter("%b %Y"))
+ax2.xaxis.set_major_formatter(mdates.DateFormatter("%b %Y"))
 plt.setp(ax1.xaxis.get_majorticklabels(), rotation=45, ha="right")
 plt.setp(ax2.xaxis.get_majorticklabels(), rotation=45, ha="right")
-plt.setp(ax3.xaxis.get_majorticklabels(), rotation=45, ha="right")
 
-# Auto-range from data — no hard-coded set_xlim
+# Auto-range from data
 ax1.set_xlim(dt_slice.iloc[0], dt_slice.iloc[-1])
 ax2.set_xlim(dt_slice.iloc[0], dt_slice.iloc[-1])
-ax3.set_xlim(dt_slice.iloc[0], dt_slice.iloc[-1])
 
 plt.tight_layout()
 plt.savefig("btc_cvd_equity_curve.png", dpi=120, bbox_inches="tight")
