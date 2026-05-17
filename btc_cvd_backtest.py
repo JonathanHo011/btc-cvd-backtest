@@ -270,10 +270,12 @@ ax2.fill_between(df["dt"].iloc[start_idx:], df["ma20"].iloc[start_idx:], df["ma2
                   color="red", alpha=0.08, label="MA below")
 
 # CVD (normalized to price range for comparison)
-cvd_norm = df["cvd"].iloc[start_idx:].values
-cvd_min, cvd_max = cvd_norm.min(), cvd_norm.max()
-price_min, price_max = df["close"].iloc[start_idx:].min(), df["close"].iloc[start_idx:].max()
-cvd_scaled = (cvd_norm - cvd_min) / (cvd_max - cvd_min) * (price_max - price_min) + price_min
+cvd_visible = df["cvd"].iloc[start_idx:].values
+cvd_min_v = cvd_visible.min()
+cvd_max_v = cvd_visible.max()
+price_min_v = df["close"].iloc[start_idx:].min()
+price_max_v = df["close"].iloc[start_idx:].max()
+cvd_scaled = (cvd_visible - cvd_min_v) / (cvd_max_v - cvd_min_v + 1e-9) * (price_max_v - price_min_v) + price_min_v
 ax2_twin.plot(df["dt"].iloc[start_idx:], cvd_scaled, color="#FF9800", linewidth=1.2, alpha=0.7, label="CVD (scaled)")
 
 ax2.set_ylabel("BTC Price ($)", color="black")
