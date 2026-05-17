@@ -1,9 +1,10 @@
 """
-BTC CVD + MA20/MA200 Momentum Backtest (v3)
-==========================================
-Fetch from Aug 2023 — same starting point as the original momentum script.
-Forward fill + deduplication for clean data quality.
-MA200 first valid: ~Feb 2024. Backtest starts May 2025.
+BTC CVD + MA20/MA200 Momentum Backtest (v4)
+=============================================
+Timeline: Feb 2024 (MA200 valid) → today
+Backtest window: 2024-01-01 → today
+MA200 first valid: ~Feb 2024
+CVD data from Aug 2023 to get accurate MA200 lookback.
 
 Run: python btc_cvd_backtest.py
 Output: btc_cvd_equity_curve.png
@@ -17,15 +18,14 @@ import matplotlib.dates as mdates
 
 # ============================================================
 # 1. FETCH DAILY KLINES FROM BINANCE (forward fill, deduped)
-#    Start from Feb 2024 so MA200 is valid by Aug 2025
 # ============================================================
 print("Fetching BTCUSDT daily klines from Binance...")
 
-FATCH_START_MS = 1692662400000  # Aug 1, 2023
+FETCH_START_MS = 1692662400000  # Aug 1, 2023
 
 all_klines = []
 batch = 500
-start_time = FATCH_START_MS
+start_time = FETCH_START_MS
 
 while len(all_klines) < 2000:
     params = {"symbol": "BTCUSDT", "interval": "1d", "limit": batch, "startTime": start_time}
@@ -70,7 +70,6 @@ print(f"Data loaded: {df['dt'].iloc[0].strftime('%Y-%m-%d')} -> {df['dt'].iloc[-
 df["ma20"] = df["close"].rolling(window=20).mean()
 df["ma200"] = df["close"].rolling(window=200).mean()
 
-# Verify MA200 is valid before Aug 2025
 first_valid_ma200 = df[df["ma200"].notna()]["dt"].iloc[0]
 print(f"First valid MA200: {first_valid_ma200.strftime('%Y-%m-%d')}")
 
@@ -101,10 +100,9 @@ df["cvd_diverging"] = (
 # ============================================================
 # 4. BACKTEST ENGINE
 # ============================================================
-# Start backtest from last crossover BEFORE the Aug 2025 window.
-# This ensures we enter on the May 2, 2025 BUY signal, exit on Nov 4 SELL.
-# Then we're flat for the rest of the window — matching real market state.
-BACKTEST_START = "2025-05-01"
+# Backtest window: Jan 1, 2024 → today
+# MA200 is valid from ~Feb 2024, so signals only fire after that
+BACKTEST_START = "2024-01-01"
 
 def run_backtest(df, use_cvd_filter=False, start_date=BACKTEST_START):
     start_idx = df[df["dt"] >= pd.to_datetime(start_date)].index[0]
@@ -236,89 +234,96 @@ for _, r in cross.iterrows():
     print(f"  {r['dt'].strftime('%Y-%m-%d')}  {d}  @ ${r['close']:,.2f}  spread={r['ma20']-r['ma200']:+.2f}")
 
 # ============================================================
-# 8. PLOT (3-panel: equity + price + CVD)
+# 8. PLOT — 3-panel: equity + price + CVD
+#    All slices use SAME start_idx, same df slice, no mismatched xlim
 # ============================================================
 plt.close("all")
 
-fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(14, 10), sharex=True,
+# Use the actual date range for the title
+date_range_start = df["dt"].iloc[start_idx].strftime("%b %Y")
+date_range_end   = df["dt"].iloc[-1].strftime("%b %Y")
+
+fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(14, 10),
+                                      sharex=True,
                                       gridspec_kw={"height_ratios": [2, 2, 1]})
-fig.suptitle("BTC Momentum: MA-only vs MA+CVD Divergence\n(Aug 2025 - May 2026)",
+fig.suptitle(f"BTC Momentum: MA-only vs MA+CVD Divergence\n({date_range_start} – {date_range_end})",
              fontsize=14, fontweight="bold")
 
-# Top: Equity curves
-ax1.plot(dates_ma, equity_ma, label="MA20/MA200 Only", color="#2196F3", linewidth=2)
-ax1.plot(dates_ma, equity_cvd, label="MA20/MA200 + CVD Filter", color="#FF9800", linewidth=2, alpha=0.9)
-ax1.plot(dates_ma, bh_equity, label="Buy & Hold", color="grey", linewidth=1.5, alpha=0.7)
+# ── Top: Equity curves ──────────────────────────────────────
+ax1.plot(dates_ma, equity_ma,   label="MA20/MA200 Only",        color="#2196F3", linewidth=2)
+ax1.plot(dates_ma, equity_cvd,  label="MA20/MA200 + CVD Filter", color="#FF9800", linewidth=2, alpha=0.9)
+ax1.plot(dates_ma, bh_equity,   label="Buy & Hold",            color="grey",   linewidth=1.5, alpha=0.7)
 ax1.set_ylabel("Portfolio Value ($)")
 ax1.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"${x:,.0f}"))
 ax1.legend(loc="upper right", ncol=3)
 ax1.set_title("Equity Curve Comparison")
 ax1.grid(True, alpha=0.3)
-ax1.xaxis.set_major_formatter(mdates.DateFormatter("%b %Y"))
-plt.setp(ax1.xaxis.get_majorticklabels(), rotation=45, ha="right")
 
 for t in trades_ma:
-    color = "green" if t["type"] == "BUY" else "red"
+    color  = "green" if t["type"] == "BUY" else "red"
     marker = "^" if t["type"] == "BUY" else "v"
     ax1.axvline(t["date"], color=color, linestyle="--", alpha=0.4, linewidth=0.8)
     ax1.scatter([t["date"]], [t["equity"]], color=color, marker=marker, s=80, zorder=5)
 
-# Middle: Price + MAs
-ax2.plot(df["dt"].iloc[start_idx:], df["close"].iloc[start_idx:],
-         color="black", linewidth=1.5, label="BTC Price")
-ax2.plot(df["dt"].iloc[start_idx:], df["ma20"].iloc[start_idx:],
-         color="#2196F3", linewidth=1, label="MA20", alpha=0.8)
-ax2.plot(df["dt"].iloc[start_idx:], df["ma200"].iloc[start_idx:],
-         color="red", linewidth=1, label="MA200", alpha=0.8)
-ax2.fill_between(df["dt"].iloc[start_idx:], df["ma20"].iloc[start_idx:], df["ma200"].iloc[start_idx:],
-                 where=(df["ma20"].iloc[start_idx:] >= df["ma200"].iloc[start_idx:]),
+# ── Middle: Price + MAs ──────────────────────────────────────
+# Slice df ONCE — same slice used for price, MA20, MA200, fill_between
+price_slice = df["close"].iloc[start_idx:].reset_index(drop=True)
+ma20_slice   = df["ma20"].iloc[start_idx:].reset_index(drop=True)
+ma200_slice  = df["ma200"].iloc[start_idx:].reset_index(drop=True)
+dt_slice     = df["dt"].iloc[start_idx:].reset_index(drop=True)
+
+ax2.plot(dt_slice, price_slice,  color="black", linewidth=1.5, label="BTC Price")
+ax2.plot(dt_slice, ma20_slice,    color="#2196F3", linewidth=1,  label="MA20", alpha=0.8)
+ax2.plot(dt_slice, ma200_slice,   color="red",    linewidth=1,  label="MA200", alpha=0.8)
+ax2.fill_between(dt_slice, ma20_slice, ma200_slice,
+                 where=(ma20_slice >= ma200_slice),
                  color="green", alpha=0.1, label="MA above")
-ax2.fill_between(df["dt"].iloc[start_idx:], df["ma20"].iloc[start_idx:], df["ma200"].iloc[start_idx:],
-                 where=(df["ma20"].iloc[start_idx:] < df["ma200"].iloc[start_idx:]),
+ax2.fill_between(dt_slice, ma20_slice, ma200_slice,
+                 where=(ma20_slice < ma200_slice),
                  color="red", alpha=0.1, label="MA below")
 ax2.set_ylabel("BTC Price ($)")
 ax2.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"${x:,.0f}"))
 ax2.legend(loc="upper right", fontsize=9)
 ax2.set_title("Price + MA20/MA200")
 ax2.grid(True, alpha=0.3)
-ax2.xaxis.set_major_formatter(mdates.DateFormatter("%b %Y"))
-plt.setp(ax2.xaxis.get_majorticklabels(), rotation=45, ha="right")
 
 for t in trades_ma:
-    color = "green" if t["type"] == "BUY" else "red"
+    color  = "green" if t["type"] == "BUY" else "red"
     marker = "^" if t["type"] == "BUY" else "v"
     ax2.scatter([t["date"]], [t["price"]], color=color, marker=marker, s=60, zorder=5)
 
-# Bottom: Raw CVD
-cvd_raw = df["cvd"].iloc[start_idx:].values
-cvd_clean = np.nan_to_num(cvd_raw, nan=0.0)
-dates_cvd = df["dt"].iloc[start_idx:].values
+# ── Bottom: Raw CVD ─────────────────────────────────────────
+cvd_slice = df["cvd"].iloc[start_idx:].reset_index(drop=True)
+cvd_clean = np.nan_to_num(cvd_slice.values, nan=0.0)
 
-ax3.plot(dates_cvd, cvd_clean, color="#FF9800", linewidth=1.5, label="CVD")
+ax3.plot(dt_slice, cvd_clean, color="#FF9800", linewidth=1.5, label="CVD")
 ax3.axhline(0, color="grey", linewidth=0.8, alpha=0.5)
-ax3.fill_between(dates_cvd, cvd_clean, 0,
+ax3.fill_between(dt_slice, cvd_clean, 0,
                  where=(cvd_clean >= 0), color="green", alpha=0.2, label="CVD positive")
-ax3.fill_between(dates_cvd, cvd_clean, 0,
-                 where=(cvd_clean < 0), color="red", alpha=0.2, label="CVD negative")
+ax3.fill_between(dt_slice, cvd_clean, 0,
+                 where=(cvd_clean < 0),  color="red",   alpha=0.2, label="CVD negative")
 ax3.set_ylabel("CVD (BTC)")
 ax3.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"{x:,.0f}"))
 ax3.legend(loc="upper right", fontsize=9)
 ax3.set_title("Cumulative Volume Delta (raw)")
 ax3.grid(True, alpha=0.3)
+
+# Divergence markers
+div_mask = df["cvd_diverging"].iloc[start_idx:].reset_index(drop=True)
+for j, (is_div, d) in enumerate(zip(div_mask, dt_slice)):
+    if is_div:
+        ax3.axvline(d, color="orange", linestyle=":", alpha=0.6, linewidth=0.8)
+
+# ── Shared X-axis format ───────────────────────────────────
 ax3.xaxis.set_major_formatter(mdates.DateFormatter("%b %Y"))
+plt.setp(ax1.xaxis.get_majorticklabels(), rotation=45, ha="right")
+plt.setp(ax2.xaxis.get_majorticklabels(), rotation=45, ha="right")
 plt.setp(ax3.xaxis.get_majorticklabels(), rotation=45, ha="right")
 
-try:
-    divergence_dates = df[df["cvd_diverging"] == True]["dt"]
-    for dd in divergence_dates:
-        if dd >= df["dt"].iloc[start_idx]:
-            ax3.axvline(dd, color="orange", linestyle=":", alpha=0.5, linewidth=0.8)
-except:
-    pass
-
-ax1.set_xlim(df["dt"].iloc[start_idx], df["dt"].iloc[-1])
-ax2.set_xlim(df["dt"].iloc[start_idx], df["dt"].iloc[-1])
-ax3.set_xlim(df["dt"].iloc[start_idx], df["dt"].iloc[-1])
+# Auto-range from data — no hard-coded set_xlim
+ax1.set_xlim(dt_slice.iloc[0], dt_slice.iloc[-1])
+ax2.set_xlim(dt_slice.iloc[0], dt_slice.iloc[-1])
+ax3.set_xlim(dt_slice.iloc[0], dt_slice.iloc[-1])
 
 plt.tight_layout()
 plt.savefig("btc_cvd_equity_curve.png", dpi=120, bbox_inches="tight")
