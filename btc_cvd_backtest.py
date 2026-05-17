@@ -51,7 +51,7 @@ df["dt"] = pd.to_datetime(df["open_time"], unit="ms")
 df["close"] = df["close"].astype(float)
 df["taker_buy_base"] = df["taker_buy_base"].astype(float)
 df["volume"] = df["volume"].astype(float)
-df = df.reset_index(drop=True)
+df = df.sort_values("dt").reset_index(drop=True)
 
 # ============================================================
 # 2. COMPUTE INDICATORS
@@ -264,9 +264,17 @@ ax3.xaxis.set_major_formatter(mdates.DateFormatter("%b %Y"))
 plt.setp(ax3.xaxis.get_majorticklabels(), rotation=45, ha="right")
 
 # Mark CVD divergence events
-divergence_dates = df[df["cvd_diverging"] == True]["dt"].iloc[start_idx:]
-for dd in divergence_dates:
-    ax3.axvline(dd, color="orange", linestyle=":", alpha=0.5, linewidth=0.8)
+try:
+    divergence_dates = df[df["cvd_diverging"] == True]["dt"]
+    for dd in divergence_dates:
+        if dd >= df["dt"].iloc[start_idx]:
+            ax3.axvline(dd, color="orange", linestyle=":", alpha=0.5, linewidth=0.8)
+except:
+    pass
+
+ax1.set_xlim(df["dt"].iloc[start_idx], df["dt"].iloc[-1])
+ax2.set_xlim(df["dt"].iloc[start_idx], df["dt"].iloc[-1])
+ax3.set_xlim(df["dt"].iloc[start_idx], df["dt"].iloc[-1])
 
 plt.tight_layout()
 plt.savefig("btc_cvd_equity_curve.png", dpi=120, bbox_inches="tight")
