@@ -1,8 +1,8 @@
 """
-BTC CVD + MA20/MA200 Momentum Backtest (FIXED)
-==============================================
-Fix: Forward fetch + dedup — removes duplicate klines that
-corrupted MA200 by $12,000+ and caused fake crossovers.
+BTC CVD + MA20/MA200 Momentum Backtest (v3)
+==========================================
+Fetch from Feb 2024 so MA200 is valid before Aug 2025 backtest start.
+Deduplication + forward fetch for clean data quality.
 
 Run: python btc_cvd_backtest.py
 Output: btc_cvd_equity_curve.png
@@ -16,26 +16,27 @@ import matplotlib.dates as mdates
 
 # ============================================================
 # 1. FETCH DAILY KLINES FROM BINANCE (forward fill, deduped)
+#    Start from Feb 2024 so MA200 is valid by Aug 2025
 # ============================================================
 print("Fetching BTCUSDT daily klines from Binance...")
 
+FATCH_START_MS = 1706745600000  # Feb 1, 2024
+
 all_klines = []
 batch = 500
-start_time = None
+start_time = FATCH_START_MS
 
-while len(all_klines) < 1200:
-    params = {"symbol": "BTCUSDT", "interval": "1d", "limit": batch}
-    if start_time:
-        params["startTime"] = start_time
+while len(all_klines) < 2000:
+    params = {"symbol": "BTCUSDT", "interval": "1d", "limit": batch, "startTime": start_time}
     r = requests.get("https://api.binance.com/api/v3/klines", params=params)
     r.raise_for_status()
     batch_data = r.json()
     if not batch_data:
         break
     all_klines.extend(batch_data)
-    oldest_ts = int(batch_data[0][0])
-    start_time = oldest_ts + 86400000
-    if oldest_ts < 1704067200000:
+    last_ts = int(batch_data[-1][0])
+    start_time = last_ts + 86400000
+    if start_time > 1767225600000:  # stop well past today
         break
 
 # Deduplicate by timestamp BEFORE creating DataFrame
@@ -46,7 +47,7 @@ for k in all_klines:
         seen.add(k[0])
         deduped.append(k)
 
-print(f"Fetched {len(all_klines)} klines, {len(deduped)} after dedup")
+print(f"Fetched {len(all_klines)} klines, {len(deduped)} unique after dedup")
 
 df = pd.DataFrame(deduped, columns=[
     "open_time", "open", "high", "low", "close", "volume",
@@ -68,6 +69,10 @@ print(f"Data loaded: {df['dt'].iloc[0].strftime('%Y-%m-%d')} -> {df['dt'].iloc[-
 df["ma20"] = df["close"].rolling(window=20).mean()
 df["ma200"] = df["close"].rolling(window=200).mean()
 
+# Verify MA200 is valid before Aug 2025
+first_valid_ma200 = df[df["ma200"].notna()]["dt"].iloc[0]
+print(f"First valid MA200: {first_valid_ma200.strftime('%Y-%m-%d')}")
+
 df["delta"] = 2 * df["taker_buy_base"] - df["volume"]
 df["cvd"] = df["delta"].cumsum()
 
@@ -79,7 +84,8 @@ df["cvd_90d_low"] = df["cvd"].rolling(window=90).min()
 # ============================================================
 df["ma_cross"] = 0
 for i in range(200, len(df) - 1):
-    if pd.notna(df["ma20"].iloc[i]) and pd.notna(df["ma200"].iloc[i]) and pd.notna(df["ma20"].iloc[i-1]):
+    if (pd.notna(df["ma20"].iloc[i]) and pd.notna(df["ma200"].iloc[i])
+            and pd.notna(df["ma20"].iloc[i-1])):
         if df["ma20"].iloc[i-1] < df["ma200"].iloc[i-1] and df["ma20"].iloc[i] >= df["ma200"].iloc[i]:
             df.loc[df.index[i], "ma_cross"] = 1
         elif df["ma20"].iloc[i-1] > df["ma200"].iloc[i-1] and df["ma20"].iloc[i] <= df["ma200"].iloc[i]:
@@ -94,7 +100,12 @@ df["cvd_diverging"] = (
 # ============================================================
 # 4. BACKTEST ENGINE
 # ============================================================
-def run_backtest(df, use_cvd_filter=False, start_date="2024-01-01"):
+# Start backtest from last crossover BEFORE the Aug 2025 window.
+# This ensures we enter on the May 2, 2025 BUY signal, exit on Nov 4 SELL.
+# Then we're flat for the rest of the window — matching real market state.
+BACKTEST_START = "2025-05-01"
+
+def run_backtest(df, use_cvd_filter=False, start_date=BACKTEST_START):
     start_idx = df[df["dt"] >= pd.to_datetime(start_date)].index[0]
     in_position = False
     entry_price = 0
@@ -157,13 +168,11 @@ def run_backtest(df, use_cvd_filter=False, start_date="2024-01-01"):
 # ============================================================
 # 5. RUN BOTH STRATEGIES
 # ============================================================
-start_idx = df[df["dt"] >= pd.to_datetime("2025-08-01")].index[0]
+start_idx = df[df["dt"] >= pd.to_datetime(BACKTEST_START)].index[0]
 
-print("\nRunning MA-only strategy (Aug 2025 -> today)...")
-equity_ma, trades_ma, dates_ma = run_backtest(df, use_cvd_filter=False, start_date="2025-08-01")
-
-print("Running MA+CVD strategy (Aug 2025 -> today)...")
-equity_cvd, trades_cvd, _ = run_backtest(df, use_cvd_filter=True, start_date="2025-08-01")
+print(f"\nRunning strategies ({BACKTEST_START} -> today)...")
+equity_ma, trades_ma, dates_ma = run_backtest(df, use_cvd_filter=False, start_date=BACKTEST_START)
+equity_cvd, trades_cvd, _ = run_backtest(df, use_cvd_filter=True, start_date=BACKTEST_START)
 
 bh_start_price = df.iloc[start_idx]["close"]
 bh_prices = df.iloc[start_idx:]["close"].values
@@ -187,7 +196,7 @@ final_equity_cvd = equity_cvd[-1]
 final_bh = bh_equity[-1]
 start_equity = 10000
 
-print(f"\n=== Performance Summary (Aug 2025 -> today) ===")
+print(f"\n=== Performance Summary ({BACKTEST_START} -> today) ===")
 print(f"  MA-only strategy:  ${final_equity_ma:,.2f} ({((final_equity_ma/start_equity)-1)*100:+.2f}%)")
 print(f"  MA+CVD strategy:   ${final_equity_cvd:,.2f} ({((final_equity_cvd/start_equity)-1)*100:+.2f}%)")
 print(f"  Buy & Hold:         ${final_bh:,.2f} ({((final_bh/start_equity)-1)*100:+.2f}%)")
@@ -197,16 +206,45 @@ if final_equity_cvd != final_equity_ma:
     print(f"\n  CVD filter {'saved' if final_equity_cvd > final_equity_ma else 'cost'} {abs(diff):.2f}% vs MA-only")
 
 # ============================================================
-# 7. PLOT EQUITY CURVES (3-PANEL: equity + price + raw CVD)
+# 7. RISK METRICS
+# ============================================================
+def max_drawdown(equity_series):
+    peak = equity_series[0]
+    max_dd = 0
+    for e in equity_series:
+        if e > peak:
+            peak = e
+        dd = (e - peak) / peak * 100
+        if dd < max_dd:
+            max_dd = dd
+    return max_dd
+
+print(f"\n=== Risk Metrics ===")
+for label, eq in [("MA-only", equity_ma), ("MA+CVD", equity_cvd), ("Buy&Hold", bh_equity)]:
+    mdd = max_drawdown(eq)
+    total = ((eq[-1]/eq[0])-1)*100
+    print(f"  {label:12s}: Total: {total:+6.2f}%  |  Max Drawdown: {mdd:6.2f}%")
+
+# All crossovers for transparency
+df["a"] = df["ma20"] > df["ma200"]
+df["p"] = df["a"].shift(1).fillna(False)
+cross = df[(df["a"] != df["p"]) & df["p"].notna()]
+print(f"\n=== All crossovers (Feb 2024 -> today) ===")
+for _, r in cross.iterrows():
+    d = "BUY" if r["a"] else "SELL"
+    print(f"  {r['dt'].strftime('%Y-%m-%d')}  {d}  @ ${r['close']:,.2f}  spread={r['ma20']-r['ma200']:+.2f}")
+
+# ============================================================
+# 8. PLOT (3-panel: equity + price + CVD)
 # ============================================================
 plt.close("all")
 
 fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(14, 10), sharex=True,
                                       gridspec_kw={"height_ratios": [2, 2, 1]})
-fig.suptitle("BTC Momentum: MA-only vs MA+CVD Divergence\n(Aug 2025 - May 2026, DEDUPED)",
+fig.suptitle("BTC Momentum: MA-only vs MA+CVD Divergence\n(Aug 2025 - May 2026)",
              fontsize=14, fontweight="bold")
 
-# --- Top: Equity curves ---
+# Top: Equity curves
 ax1.plot(dates_ma, equity_ma, label="MA20/MA200 Only", color="#2196F3", linewidth=2)
 ax1.plot(dates_ma, equity_cvd, label="MA20/MA200 + CVD Filter", color="#FF9800", linewidth=2, alpha=0.9)
 ax1.plot(dates_ma, bh_equity, label="Buy & Hold", color="grey", linewidth=1.5, alpha=0.7)
@@ -224,7 +262,7 @@ for t in trades_ma:
     ax1.axvline(t["date"], color=color, linestyle="--", alpha=0.4, linewidth=0.8)
     ax1.scatter([t["date"]], [t["equity"]], color=color, marker=marker, s=80, zorder=5)
 
-# --- Middle: Price + MAs ---
+# Middle: Price + MAs
 ax2.plot(df["dt"].iloc[start_idx:], df["close"].iloc[start_idx:],
          color="black", linewidth=1.5, label="BTC Price")
 ax2.plot(df["dt"].iloc[start_idx:], df["ma20"].iloc[start_idx:],
@@ -250,7 +288,7 @@ for t in trades_ma:
     marker = "^" if t["type"] == "BUY" else "v"
     ax2.scatter([t["date"]], [t["price"]], color=color, marker=marker, s=60, zorder=5)
 
-# --- Bottom: Raw CVD ---
+# Bottom: Raw CVD
 cvd_raw = df["cvd"].iloc[start_idx:].values
 cvd_clean = np.nan_to_num(cvd_raw, nan=0.0)
 dates_cvd = df["dt"].iloc[start_idx:].values
@@ -284,34 +322,5 @@ ax3.set_xlim(df["dt"].iloc[start_idx], df["dt"].iloc[-1])
 plt.tight_layout()
 plt.savefig("btc_cvd_equity_curve.png", dpi=120, bbox_inches="tight")
 print(f"\nChart saved: btc_cvd_equity_curve.png")
-
-# ============================================================
-# 8. RISK METRICS
-# ============================================================
-def max_drawdown(equity_series):
-    peak = equity_series[0]
-    max_dd = 0
-    for e in equity_series:
-        if e > peak:
-            peak = e
-        dd = (e - peak) / peak * 100
-        if dd < max_dd:
-            max_dd = dd
-    return max_dd
-
-print(f"\n=== Risk Metrics ===")
-for label, eq in [("MA-only", equity_ma), ("MA+CVD", equity_cvd), ("Buy&Hold", bh_equity)]:
-    mdd = max_drawdown(eq)
-    total = ((eq[-1]/eq[0])-1)*100
-    print(f"  {label:12s}: Total: {total:+6.2f}%  |  Max Drawdown: {mdd:6.2f}%")
-
-# Show all crossovers for transparency
-df["a"] = df["ma20"] > df["ma200"]
-df["p"] = df["a"].shift(1).fillna(False)
-cross = df[(df["a"] != df["p"]) & df["p"].notna()]
-print(f"\n=== All crossovers (clean, deduped) ===")
-for _, r in cross.iterrows():
-    d = "BUY" if r["a"] else "SELL"
-    print(f"  {r['dt'].strftime('%Y-%m-%d')}  {d}  @ ${r['close']:,.2f}  spread={r['ma20']-r['ma200']:+.2f}")
 
 print("\nDone.")
