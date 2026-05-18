@@ -62,7 +62,7 @@ The signal is **real** (validated by walk-forward analysis in prior sessions: tr
 | Oct 2024 → Mar 2025 | $68K → $83K (+22%) | +22.52% ✅ | Caught the move |
 | Mar 2025 → May 2025 | $83K → $97K (+17%) | Exited too early ❌ | Missed recovery (CVD block) |
 | May 2025 → Nov 2025 | $97K → $101K (+5%) | +4.76% ✅ | Flat/chop, rode it |
-| Nov 2025 → May 2026 | $101K → $95K (-6%) | Flat | **Missed ATH $124K (+23% from exit)** — sat flat through entire rally to $124K and subsequent drawdown |
+| Nov 2025 → May 2026 | $101K → $77K (-23%) | Flat | **Missed ATH $124K (+23% from exit)** — flat through the rally to $124K and entire drawdown to $77K |
 
 The strategy worked when BTC moved directionally; it underperformed or got blocked when BTC chopped or recovered.
 
