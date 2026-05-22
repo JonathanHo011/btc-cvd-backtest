@@ -10,7 +10,7 @@ Backtests a MA20/MA200 golden/death cross strategy on BTC/USDT (Binance daily ca
 
 ---
 
-## Current Best Result (v6 — May 22, 2026)
+## Current Best Result (v6/v7 — May 22, 2026)
 
 ### Strategy: MA Golden Cross Entry + 10% Trailing Stop Exit
 
@@ -21,7 +21,7 @@ Backtests a MA20/MA200 golden/death cross strategy on BTC/USDT (Binance daily ca
 | **Sharpe Ratio** | +0.522 | **+1.118** | First time above 1.0 |
 | **vs Buy & Hold** | -46.97% | -17.23% | +29.74% relative |
 
-### Trade Log (v6 — 10% Trail)
+### Trade Log (v6/v7 — 10% Trail, No CVD Filter)
 
 | Date | Action | Price | PnL | Exit Reason |
 |------|--------|-------|-----|-------------|
@@ -30,7 +30,7 @@ Backtests a MA20/MA200 golden/death cross strategy on BTC/USDT (Binance daily ca
 | 2025-05-02 | BUY | $96,887 | — | Golden cross |
 | 2025-08-25 | SELL | $110,112 | **+13.65%** | Trailing stop |
 
-> **Both exits were trailing stop exits** — the MA death cross never had a chance to fire. The stop caught the exits 2-3 months earlier than waiting for the death cross, capturing significantly more profit.
+> Both exits were trailing stop exits — the MA death cross never had a chance to fire. The stop caught the exits 2-3 months earlier than waiting for the death cross.
 
 ### Trade Log (v5 — MA-only, for comparison)
 
@@ -41,34 +41,49 @@ Backtests a MA20/MA200 golden/death cross strategy on BTC/USDT (Binance daily ca
 | 2025-05-02 | BUY | $96,887 | — | Golden cross |
 | 2025-11-04 | SELL | $101,497 | **+4.76%** | Death cross |
 
-> The MA death cross sold $83.8K vs the trailing stop's $95.2K (Trade 1) — the trailing stop captured an extra **+16.6%** by exiting while the trend was still intact. Trade 2: $110.1K vs $101.5K — extra **+8.9%**.
-
 ---
 
 ## Version History
 
-| Version | Date | Key Change | Return | MaxDD | Sharpe |
-|---------|------|-----------|--------|-------|--------|
-| **v6** | May 22, 2026 | **10% trailing stop exit** | **+58.09%** | **-12.73%** | **+1.118** |
-| v5 | May 18, 2026 | Mark-to-market fix; CVD z-score | +28.35% | -25.95% | +0.522 |
-| v4 | May 17, 2026 | Forward fetch + dedup; CVD divergence | Broken (data corruption) | — | — |
-| v3 | May 14, 2026 | Original CVD filter (90d high) | +0.15% (CVD filter destroyed returns) | — | — |
-| v2 | May 11, 2026 | Walk-forward validation | +2.38% | -35.32% | -0.036 |
-| v1 | May 9, 2026 | Initial MA20/MA200 backtest | +0.55% | -35.32% | -0.036 |
+| Version | Date | Key Change | Return | MaxDD | Sharpe | Verdict |
+|---------|------|-----------|--------|-------|--------|---------|
+| **v6** | May 22, 2026 | **10% trailing stop exit** | **+58.09%** | **-12.73%** | **+1.118** | ✅ **CURRENT BEST** |
+| v7 | May 22, 2026 | CVD entry filter tested | +58.09% | -12.73% | +1.118 | ❌ CVD blocked ALL entries |
+| v5 | May 18, 2026 | Mark-to-market fix; CVD z-score exit | +28.35% | -25.95% | +0.522 | ✅ MA-only works, CVD exit rejected |
+| v4 | May 17, 2026 | Forward fetch + dedup; CVD divergence | Broken (data corruption) | — | — | 🐛 Bug discovery |
+| v3 | May 14, 2026 | Original CVD filter (90d high) | +0.15% (CVD destroyed returns) | — | — | ❌ CVD exit rejected |
+| v2 | May 11, 2026 | Walk-forward validation | +2.38% | -35.32% | -0.036 | ✅ Signal is real |
+| v1 | May 9, 2026 | Initial MA20/MA200 backtest | +0.55% | -35.32% | -0.036 | 🏁 Baseline |
 
-### Key Lessons by Version
+---
 
-**v6 (Trailing Stop):** Adding a 10% trailing stop transformed the strategy. Both exits fired on the stop, not the MA death cross — the MA crossover is too slow as an exit signal. 10% was optimal (tight enough to protect gains, wide enough not to whipsaw). The trailing stop is an exit-only improvement — entries remain purely MA golden cross.
+## CVD Experiment — Complete Postmortem (v3, v5, v7)
 
-**v5 (Mark-to-Market Fix):** Fixed a critical bug that made the equity curve flat during open positions. MaxDD went from 0% (meaningless) to -25.95% (real). This was the session where CVD was **rejected** as an exit filter — it destroyed +28.2% of returns.
+CVD (Cumulative Volume Delta) was tested as both an **exit** filter and an **entry** filter. Both failed decisively on daily BTC spot data.
 
-**v4 (Data Fix):** Binance backward fetch produced 500 duplicate klines. MA200 was off by $12,000. A fake BUY crossover appeared on Apr 20, 2026 that did not exist in the data.
+### CVD as Exit Filter (v3, v5) → ❌ REJECTED
+- v3: 90d high threshold permanently triggered — instant exit after every BUY
+- v5: 20d z-score cost +28.2% vs MA-only — panic-sold during normal consolidation
+- **Reason:** BTC spot CVD is structurally noisy on daily candles — stablecoin rotations, perp dominance, and MM delta-neutral arb create false signals
 
-**v3 (CVD Failure):** The CVD 90d high threshold was permanently triggered because BTC spot CVD was structurally declining during the 2024-2025 bull run. Instant exit after every BUY. This was the session where we discovered **why** spot CVD fails as a daily BTC filter.
+### CVD as Entry Filter (v7) → ❌ REJECTED
+- **Z-Score > 0:** blocked BOTH golden crosses → 0 trades, +0.00%
+- **Z-Score > -0.5:** blocked BOTH → 0 trades, +0.00%
+- **Slope > 0:** blocked BOTH → 0 trades, +0.00%
+- **ROC(20d) > 0%:** let both through → same as v6 (no filtering effect)
+- **Conclusion:** Any CVD threshold strict enough to filter bad entries also filters good entries — spot CVD has zero discriminating power at golden cross moments
 
-**v2 (Walk-Forward):** Confirmed the MA crossover signal is real (train +5.03% vs test +4.58%, gap ~0.45%), but absolute performance is regime-dependent and poor in bull markets.
+### Why Spot CVD Fails Structurally on Daily BTC
+1. **Stablecoin pair rotations** — capital moving into USDT looks identical to distribution
+2. **Perpetuals absorb volume** — spot volume dries up while price rises, CVD diverges without signal
+3. **Market maker delta-neutral arb** — cross-exchange arbitrage creates synthetic sell pressure without directional conviction
 
-**v1 (Initial):** First working backtest. Strategy barely positive while BTC was +30%.
+### What's Left for CVD
+- Perp CVD (futures data) may avoid spot's structural noise
+- Cross-exchange comparison (Binance vs Coinbase) could isolate ETF-driven flow
+- Higher frequency data (4H candles) might show cleaner patterns
+
+**Bottom line:** CVD on daily Binance spot BTC is not useful as a trade filter — tested exhaustively across 3 versions with 6+ variants. This is a real, documented finding that belongs in the portfolio.
 
 ---
 
@@ -87,40 +102,23 @@ Backtests a MA20/MA200 golden/death cross strategy on BTC/USDT (Binance daily ca
 ### Bug 3: CVD 90d High Threshold Permanently Triggered (v3)
 **Symptom:** CVD filter caused instant exit after every BUY.  
 **Root cause:** BTC spot CVD in structural decline during the bull run — 90d rolling high always rolling forward.  
-**Fix:** Replaced with 20d z-score (v5) — then abandoned CVD entirely for daily spot BTC.
+**Fix:** Abandoned 90d method. Replaced with z-score in v5, then abandoned CVD entirely.
 
 ---
 
-## Strategy Logic (Current — v6)
+## Strategy Logic (Current — v6/v7)
 
 ```
 Entry:  MA20 crosses ABOVE MA200 → BUY (golden cross)
 Exit:   Close drops 10% below highest close since entry → SELL (trailing stop)
          — OR —
-        MA20 crosses BELOW MA200 → SELL (death cross, fallback only)
+        MA20 crosses BELOW MA200 → SELL (death cross, fallback)
 
 The trailing stop ratchets UP only — never down.
 If price rises, the stop follows. If price falls, the stop stays.
 ```
 
-No transaction costs modeled. No stop-loss (the trailing stop handles risk management).
-
----
-
-## CVD Experiment — Why It Failed & What We Learned
-
-The Cumulative Volume Delta (CVD) filter was extensively tested across v3-v5 and ultimately **rejected** for daily BTC spot data. This is documented transparently because knowing what *doesn't* work is as valuable as knowing what does.
-
-**What we tried:**
-- 90d CVD high divergence (v3) → permanently triggered, destroyed all returns
-- 20d CVD z-score divergence (v5) → cost +28.2% vs MA-only, blocked re-entries during rallies
-
-**Why spot CVD fails structurally on daily BTC:**
-1. **Stablecoin pair rotations** → capital rotating into USDT/USDC looks identical to distribution
-2. **Perpetuals absorb volume** → spot volume dries up while price rises; CVD diverges with no directional signal
-3. **Market maker delta-neutral arb** → cross-exchange arbitrage creates synthetic sell pressure without conviction
-
-**Future CVD work:** If revisiting, try (a) perp CVD from futures data instead of spot, (b) cross-exchange comparison (Binance vs Coinbase spot CVD), or (c) higher-frequency data (4H candles).
+No CVD filter. No transaction costs modeled.
 
 ---
 
@@ -128,9 +126,11 @@ The Cumulative Volume Delta (CVD) filter was extensively tested across v3-v5 and
 
 | File | Description |
 |------|-------------|
-| `btc_trailing_stop_backtest.py` | **Current (v6)** — MA golden cross + trailing stop variants |
-| `btc_cvd_backtest.py` | v5 — MA crossover + CVD filter (historical reference) |
-| `btc_trailing_stop_equity_curve.png` | 3-panel chart: equity comparison, drawdown, price + trades |
+| `btc_trailing_stop_backtest.py` | **Current (v6)** — MA golden cross + trailing stop, no CVD |
+| `btc_cvd_entry_filter.py` | v7 — CVD entry filter variants (all rejected) |
+| `btc_cvd_backtest.py` | v5 — original CVD exit filter (historical) |
+| `btc_trailing_stop_equity_curve.png` | v6 chart |
+| `btc_cvd_entry_filter_equity.png` | v7 chart |
 | `btc_cvd_equity_curve.png` | v5 chart (historical) |
 | `README.md` | This file |
 
@@ -139,10 +139,7 @@ The Cumulative Volume Delta (CVD) filter was extensively tested across v3-v5 and
 ## How to Run
 
 ```bash
-# Install dependencies
 pip install pandas numpy matplotlib requests
-
-# Run v6 (trailing stop)
 python btc_trailing_stop_backtest.py
 ```
 
@@ -152,17 +149,16 @@ python btc_trailing_stop_backtest.py
 
 | Priority | Improvement | Rationale |
 |----------|-------------|-----------|
-| 1 | **CVD entry filter** | Test CVD as entry gating (skip fake golden crosses) — different role than exit filter |
-| 2 | **Perp CVD + funding rates** | Futures data may avoid spot CVD's structural noise |
-| 3 | **Multi-asset test** | Test trailing stop on ETH, SOL, gold — does it generalize? |
-| 4 | **Transaction costs** | Model 0.1-0.5% per trade for realistic execution |
+| 1 | **Perp CVD + funding rates** | Futures data may avoid spot's structural noise — different market |
+| 2 | **Multi-asset test** | Does trailing stop generalize to ETH, SOL, gold? |
+| 3 | **Transaction costs & slippage** | Model 0.1-0.5% per trade for realistic execution |
 
 ---
 
 ## Limitations
 
-- No transaction costs or slippage (real execution ~0.1-0.5% per trade)
-- Only 2 trades in v6 — small sample, cannot conclude on long-term edge
+- No transaction costs or slippage
+- Only 2 trades — small sample, cannot conclude on long-term edge
 - Backtest window ~2.3 years — insufficient for statistical significance
 - Trailing stop % optimized in-sample — may not generalize
 - Past performance ≠ future results
@@ -172,7 +168,7 @@ python btc_trailing_stop_backtest.py
 ## Live Signal (May 22, 2026)
 
 - BTC: ~$77,457
-- MA20: below MA200 (death cross active since Nov 4, 2025)
+- MA20: below MA200 (death cross since Nov 4, 2025)
 - Position: **Flat**
 - ATH: $124,659 (Oct 6, 2025)
 - Next watch: Monitoring for golden cross
