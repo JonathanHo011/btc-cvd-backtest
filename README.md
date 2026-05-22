@@ -1,109 +1,126 @@
-# BTC MA20/MA200 + CVD Momentum Backtest
+# BTC MA20/MA200 Momentum Backtest — Ongoing Research Project
 
 ## Overview
 
-Backtests a MA20/MA200 golden/death cross strategy on BTC/USDT (Binance daily candles), with and without a CVD (Cumulative Volume Delta) divergence filter as an exit override.
+Backtests a MA20/MA200 golden/death cross strategy on BTC/USDT (Binance daily candles), iteratively improving it through multiple versions. Each version builds on the last, with bugs documented, hypotheses tested, and failures recorded alongside wins.
 
-**Period:** Jan 2024 → May 2026
-**Starting capital:** $10,000
+**Period:** Jan 2024 → May 2026  
+**Starting capital:** $10,000  
 **Data:** Binance public API — no API key required
 
 ---
 
-## Results
+## Current Best Result (v6 — May 22, 2026)
 
-| Strategy | Final Equity | Total Return | Max Drawdown | vs Buy&Hold |
-|----------|-------------|--------------|--------------|-------------|
-| **MA-only** | $12,835 | **+28.35%** | **-25.95%** | -46.97% |
-| **Buy & Hold** | $17,532 | **+75.32%** | **-49.53%** | — |
+### Strategy: MA Golden Cross Entry + 10% Trailing Stop Exit
 
-> **CVD filter:** Dropped return to **+0.15%** — cost **28.2%** vs MA-only. CVD caused early exits and blocked re-entries during the biggest BTC rallies of the period. See "Why CVD Failed" below.
+| Metric | MA-only (v5 baseline) | MA + 10% Trail (v6) | Improvement |
+|--------|----------------------|---------------------|-------------|
+| **Total Return** | +28.35% | **+58.09%** | **+29.74%** |
+| **Max Drawdown** | -25.95% | **-12.73%** | **-13.22%** |
+| **Sharpe Ratio** | +0.522 | **+1.118** | First time above 1.0 |
+| **vs Buy & Hold** | -46.97% | -17.23% | +29.74% relative |
 
-**Trade Log (MA-only):**
+### Trade Log (v6 — 10% Trail)
 
-| Date | Action | Price | PnL |
-|------|--------|-------|-----|
-| 2024-10-18 | BUY | $68,428 | — |
-| 2025-03-22 | SELL | $83,841 | **+22.52%** |
-| 2025-05-02 | BUY | $96,887 | — |
-| 2025-11-04 | SELL | $101,497 | **+4.76%** |
+| Date | Action | Price | PnL | Exit Reason |
+|------|--------|-------|-----|-------------|
+| 2024-10-18 | BUY | $68,428 | — | Golden cross |
+| 2024-12-22 | SELL | $95,186 | **+39.10%** | Trailing stop |
+| 2025-05-02 | BUY | $96,887 | — | Golden cross |
+| 2025-08-25 | SELL | $110,112 | **+13.65%** | Trailing stop |
 
-**Currently:** Flat (MA20 below MA200 — death cross on Nov 4 2025).
+> **Both exits were trailing stop exits** — the MA death cross never had a chance to fire. The stop caught the exits 2-3 months earlier than waiting for the death cross, capturing significantly more profit.
 
----
+### Trade Log (v5 — MA-only, for comparison)
 
-## Key Findings
+| Date | Action | Price | PnL | Exit Reason |
+|------|--------|-------|-----|-------------|
+| 2024-10-18 | BUY | $68,428 | — | Golden cross |
+| 2025-03-22 | SELL | $83,841 | **+22.52%** | Death cross |
+| 2025-05-02 | BUY | $96,887 | — | Golden cross |
+| 2025-11-04 | SELL | $101,497 | **+4.76%** | Death cross |
 
-### 1. MA Crossover Is a Lagging Indicator — Market Timing Is Everything
-
-The strategy BUY fires only after BTC has already been in an uptrend for months. In this backtest:
-- BTC bottomed ~$40K in Sep 2024; strategy entered at $68K on Oct 18 2024
-- BTC peaked at $124K on Oct 6 2025; strategy never captured that move cleanly
-
-The signal is **real** (validated by walk-forward analysis in prior sessions: train +5.03% vs test +4.58%, gap ~0.45%) but its absolute performance is entirely dependent on primary market direction.
-
-### 2. The CVD Filter Was Counterproductive
-
-**What happened:** CVD divergence was originally intended as an early exit filter to avoid fakeouts. In practice:
-- BTC's spot CVD (Binance `taker_buy_base`) is structurally noisy on daily candles
-- CVD z-score < -1.5 triggers frequently during normal consolidation — not just institutional distribution
-- Every time the MA strategy generated a BUY, the CVD filter panic-sold a few days later
-- The filter also blocked re-entries during the Apr–Oct 2025 BTC rally (+46%)
-
-**Why spot CVD fails as a daily filter:**
-- Capital rotates to stablecoins during risk-off periods → spot CVD drops even without selling
-- Perpetuals/futures markets absorb volume that doesn't appear in spot CVD
-- Delta-neutral arbitrage by market makers creates CVD-price divergence without directional signal
-
-### 3. Strategy vs Market Regime
-
-| Period | BTC Direction | MA-only Performance | Notes |
-|--------|--------------|---------------------|-------|
-| Oct 2024 → Mar 2025 | $68K → $83K (+22%) | +22.52% ✅ | Caught the move |
-| Mar 2025 → May 2025 | $83K → $97K (+17%) | Exited too early ❌ | Missed recovery (CVD block) |
-| May 2025 → Nov 2025 | $97K → $101K (+5%) | +4.76% ✅ | Flat/chop, rode it |
-| Nov 2025 → May 2026 | $101K → $77K (-23%) | Flat | **Missed ATH $124K (+23% from exit)** — flat through the rally to $124K and entire drawdown to $77K |
-
-The strategy worked when BTC moved directionally; it underperformed or got blocked when BTC chopped or recovered.
+> The MA death cross sold $83.8K vs the trailing stop's $95.2K (Trade 1) — the trailing stop captured an extra **+16.6%** by exiting while the trend was still intact. Trade 2: $110.1K vs $101.5K — extra **+8.9%**.
 
 ---
 
-## Bugs Fixed (v4 → v5)
+## Version History
 
-### Bug 1: Flat Equity Line While In Position
-**Problem:** Equity only updated on trade close. While in an open position, the equity curve appended the static entry-equity value — making it a flat line during the entire position, not reflecting mark-to-market PnL.
+| Version | Date | Key Change | Return | MaxDD | Sharpe |
+|---------|------|-----------|--------|-------|--------|
+| **v6** | May 22, 2026 | **10% trailing stop exit** | **+58.09%** | **-12.73%** | **+1.118** |
+| v5 | May 18, 2026 | Mark-to-market fix; CVD z-score | +28.35% | -25.95% | +0.522 |
+| v4 | May 17, 2026 | Forward fetch + dedup; CVD divergence | Broken (data corruption) | — | — |
+| v3 | May 14, 2026 | Original CVD filter (90d high) | +0.15% (CVD filter destroyed returns) | — | — |
+| v2 | May 11, 2026 | Walk-forward validation | +2.38% | -35.32% | -0.036 |
+| v1 | May 9, 2026 | Initial MA20/MA200 backtest | +0.55% | -35.32% | -0.036 |
 
-**Fix:** Track `shares_held = entry_equity / entry_price` and mark-to-market every day:
-```python
-if in_position:
-    equity_curve.append(shares_held * row["close"])  # updates every day
-else:
-    equity_curve.append(equity)
-```
+### Key Lessons by Version
 
-### Bug 2: CVD 90d High Threshold Permanently Triggered
-**Problem:** Original code: `cvd < cvd_90d_high * 0.95`. BTC's spot CVD was in a structural downtrend during the 2024-2025 bull run — the 90d rolling high kept rolling forward, making the condition almost always true. Result: instant exit after every BUY.
+**v6 (Trailing Stop):** Adding a 10% trailing stop transformed the strategy. Both exits fired on the stop, not the MA death cross — the MA crossover is too slow as an exit signal. 10% was optimal (tight enough to protect gains, wide enough not to whipsaw). The trailing stop is an exit-only improvement — entries remain purely MA golden cross.
 
-**Fix:** Replaced with 20d CVD z-score — divergence only fires on a sharp, sudden CVD drop (z-score < -1.5) while price is at 90d highs. Too responsive for daily BTC — see findings above.
+**v5 (Mark-to-Market Fix):** Fixed a critical bug that made the equity curve flat during open positions. MaxDD went from 0% (meaningless) to -25.95% (real). This was the session where CVD was **rejected** as an exit filter — it destroyed +28.2% of returns.
 
-### Bug 3: Backward Fetch Duplicates (discovered earlier)
-**Problem:** Using Binance backward pagination (`endTime`) produces ~500 duplicate klines out of 1000 rows. Rolling indicators calculated on corrupted data gave wrong MA200 values (off by $12,000) and generated a fake BUY crossover on Apr 20 2026.
+**v4 (Data Fix):** Binance backward fetch produced 500 duplicate klines. MA200 was off by $12,000. A fake BUY crossover appeared on Apr 20, 2026 that did not exist in the data.
 
-**Fix:** Forward fetch + deduplicate by timestamp before computing any indicators.
+**v3 (CVD Failure):** The CVD 90d high threshold was permanently triggered because BTC spot CVD was structurally declining during the 2024-2025 bull run. Instant exit after every BUY. This was the session where we discovered **why** spot CVD fails as a daily BTC filter.
+
+**v2 (Walk-Forward):** Confirmed the MA crossover signal is real (train +5.03% vs test +4.58%, gap ~0.45%), but absolute performance is regime-dependent and poor in bull markets.
+
+**v1 (Initial):** First working backtest. Strategy barely positive while BTC was +30%.
 
 ---
 
-## Strategy Logic
+## Bugs Discovered & Fixed
+
+### Bug 1: Flat Equity Line During Open Positions (v5)
+**Symptom:** Equity curve was flat during every trade — MaxDD reported as 0%.  
+**Root cause:** Equity only updated on trade close, not while position was open.  
+**Fix:** Track `shares_held = entry_equity / entry_price` and mark-to-market daily.
+
+### Bug 2: Backward Fetch Duplicates (v4)
+**Symptom:** MA200 values off by $12,000; fake BUY crossover generated.  
+**Root cause:** Binance backward pagination (`endTime`) produces ~50% duplicate klines.  
+**Fix:** Forward fetch + deduplicate by timestamp before DataFrame creation.
+
+### Bug 3: CVD 90d High Threshold Permanently Triggered (v3)
+**Symptom:** CVD filter caused instant exit after every BUY.  
+**Root cause:** BTC spot CVD in structural decline during the bull run — 90d rolling high always rolling forward.  
+**Fix:** Replaced with 20d z-score (v5) — then abandoned CVD entirely for daily spot BTC.
+
+---
+
+## Strategy Logic (Current — v6)
 
 ```
-Entry:  MA20 crosses ABOVE MA200  → BUY (long)
-Exit:   MA20 crosses BELOW MA200  → SELL (flat)
+Entry:  MA20 crosses ABOVE MA200 → BUY (golden cross)
+Exit:   Close drops 10% below highest close since entry → SELL (trailing stop)
+         — OR —
+        MA20 crosses BELOW MA200 → SELL (death cross, fallback only)
 
-With CVD filter: also exits early if CVD z-score < -1.5 while price at 90d high
-(Not recommended — see findings above)
+The trailing stop ratchets UP only — never down.
+If price rises, the stop follows. If price falls, the stop stays.
 ```
 
-No transaction costs modeled. No stop-loss. Pure signal-driven.
+No transaction costs modeled. No stop-loss (the trailing stop handles risk management).
+
+---
+
+## CVD Experiment — Why It Failed & What We Learned
+
+The Cumulative Volume Delta (CVD) filter was extensively tested across v3-v5 and ultimately **rejected** for daily BTC spot data. This is documented transparently because knowing what *doesn't* work is as valuable as knowing what does.
+
+**What we tried:**
+- 90d CVD high divergence (v3) → permanently triggered, destroyed all returns
+- 20d CVD z-score divergence (v5) → cost +28.2% vs MA-only, blocked re-entries during rallies
+
+**Why spot CVD fails structurally on daily BTC:**
+1. **Stablecoin pair rotations** → capital rotating into USDT/USDC looks identical to distribution
+2. **Perpetuals absorb volume** → spot volume dries up while price rises; CVD diverges with no directional signal
+3. **Market maker delta-neutral arb** → cross-exchange arbitrage creates synthetic sell pressure without conviction
+
+**Future CVD work:** If revisiting, try (a) perp CVD from futures data instead of spot, (b) cross-exchange comparison (Binance vs Coinbase spot CVD), or (c) higher-frequency data (4H candles).
 
 ---
 
@@ -111,27 +128,55 @@ No transaction costs modeled. No stop-loss. Pure signal-driven.
 
 | File | Description |
 |------|-------------|
-| `btc_cvd_backtest.py` | Full backtest engine + charting (v5 fixed) |
-| `btc_cvd_equity_curve.png` | 2-panel chart: equity curves + price/MAs/CVD |
+| `btc_trailing_stop_backtest.py` | **Current (v6)** — MA golden cross + trailing stop variants |
+| `btc_cvd_backtest.py` | v5 — MA crossover + CVD filter (historical reference) |
+| `btc_trailing_stop_equity_curve.png` | 3-panel chart: equity comparison, drawdown, price + trades |
+| `btc_cvd_equity_curve.png` | v5 chart (historical) |
 | `README.md` | This file |
+
+---
+
+## How to Run
+
+```bash
+# Install dependencies
+pip install pandas numpy matplotlib requests
+
+# Run v6 (trailing stop)
+python btc_trailing_stop_backtest.py
+```
+
+---
+
+## Next Steps
+
+| Priority | Improvement | Rationale |
+|----------|-------------|-----------|
+| 1 | **CVD entry filter** | Test CVD as entry gating (skip fake golden crosses) — different role than exit filter |
+| 2 | **Perp CVD + funding rates** | Futures data may avoid spot CVD's structural noise |
+| 3 | **Multi-asset test** | Test trailing stop on ETH, SOL, gold — does it generalize? |
+| 4 | **Transaction costs** | Model 0.1-0.5% per trade for realistic execution |
 
 ---
 
 ## Limitations
 
-- No transaction costs (real execution would cost ~0.1-0.5% per trade)
-- No slippage modeling
-- No stop-loss or risk management
-- CVD data is from Binance spot only — may not capture full institutional flow
-- Backtest window ~2.3 years — insufficient to conclude on long-term edge
+- No transaction costs or slippage (real execution ~0.1-0.5% per trade)
+- Only 2 trades in v6 — small sample, cannot conclude on long-term edge
+- Backtest window ~2.3 years — insufficient for statistical significance
+- Trailing stop % optimized in-sample — may not generalize
 - Past performance ≠ future results
 
 ---
 
-## Conclusion
+## Live Signal (May 22, 2026)
 
-MA20/MA200 crossover is a **real signal** (walk-forward validated) but is regime-dependent — it significantly underperforms buy-and-hold in sustained bull markets due to lag. The CVD divergence filter was tested and **rejected** for daily BTC spot data — too noisy, structurally misaligned with BTC's market structure. Further research direction: try CVD on higher timeframe (4H, daily with smoothing) or replace with futures data for more accurate institutional flow detection.
+- BTC: ~$77,457
+- MA20: below MA200 (death cross active since Nov 4, 2025)
+- Position: **Flat**
+- ATH: $124,659 (Oct 6, 2025)
+- Next watch: Monitoring for golden cross
 
 ---
 
-*Last updated: May 2026 | Data source: Binance public API | Period: Jan 2024 – May 2026*
+*This is an ongoing research project — versions are deliberately incremental. Failures are documented. Improvements are quantitative. The goal is building a credible portfolio of trading research for crypto quant roles.*
